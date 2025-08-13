@@ -20,5 +20,7 @@ except ImportError:
     __path__.append(os.path.join(dirname, "bindings"))
     from .osmosdr_python import *
 
+print("osmosdr SDR-14 debug +++kai+++")
+
 # import any pure python here
 #

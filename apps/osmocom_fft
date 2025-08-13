@@ -198,6 +198,8 @@ class app_top_block(gr.top_block, Qt.QMainWindow):
         try:
             rg = self.src.get_bandwidth_range()
             range_start = rg.start()
+            if rg.step() == 0:
+                self.bandwidth_ok = False
             if self._verbose:
                 print('Supported bandwidth rates %.10g-%.10g step %.10g.' % (rg.start(), rg.stop(), rg.step()))
         except RuntimeError as ex:
@@ -445,10 +447,11 @@ class app_top_block(gr.top_block, Qt.QMainWindow):
         self._add_section("Sample Rate", self.top_layout)
 
         r = self.src.get_sample_rates()
-        self._srr = Range(r.start(), r.stop(), r.step() or (r.stop() - r.start())/100, self.src.get_sample_rate(), 100)
-        self._srw = RangeWidget(self._srr, self.set_sample_rate, 'Sample Rate (Hz)', eng_widget, float)
-        self._shrink(self._srw)
-        self.top_layout.addWidget(self._srw)
+        if r.step() !=0:
+            self._srr = Range(r.start(), r.stop(), r.step() or (r.stop() - r.start())/100, self.src.get_sample_rate(), 100)
+            self._srw = RangeWidget(self._srr, self.set_sample_rate, 'Sample Rate (Hz)', eng_widget, float)
+            self._shrink(self._srw)
+            self.top_layout.addWidget(self._srw)
 
         ##################################################
         # File recording controls

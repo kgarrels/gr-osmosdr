@@ -28,6 +28,8 @@ enable_testing()
 #policy setup
 cmake_policy(SET CMP0011 NEW)
 
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
 #select the release build type by default to get optimization flags
 if(NOT CMAKE_BUILD_TYPE)
    set(CMAKE_BUILD_TYPE "Release")

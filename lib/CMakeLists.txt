@@ -57,6 +57,13 @@ target_include_directories(gnuradio-osmosdr
     PUBLIC $<INSTALL_INTERFACE:include>
   )
 set_target_properties(gnuradio-osmosdr PROPERTIES DEFINE_SYMBOL "gnuradio_osmosdr_EXPORTS")
+# Define specific Release settings.
+set (CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -D NDEBUG -O3")
+
+#ARM64 flag
+if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -arch arm64")
+endif()
 
 if(APPLE)
     set_target_properties(gnuradio-osmosdr PROPERTIES
@@ -284,8 +291,12 @@ configure_file(
 ########################################################################
 # Finalize target
 ########################################################################
+
+find_package ( LibFTDI1 NO_MODULE REQUIRED )
+include ( ${LIBFTDI_USE_FILE} )
+
 set_target_properties(gnuradio-osmosdr PROPERTIES SOURCES "${gr_osmosdr_srcs}")
-target_link_libraries(gnuradio-osmosdr ${gr_osmosdr_libs})
+target_link_libraries(gnuradio-osmosdr ${gr_osmosdr_libs} "/Users/kai/radioconda/lib/libftdi.dylib")
 
 ########################################################################
 # Install built library files

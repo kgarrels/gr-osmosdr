@@ -184,6 +184,7 @@ source_impl::source_impl( const std::string &args )
 #ifdef ENABLE_RFSPACE
   dev_types.push_back("sdr-iq"); /* additional aliases for rfspace backend */
   dev_types.push_back("sdr-ip");
+  dev_types.push_back("sdr-14");
   dev_types.push_back("netsdr");
   dev_types.push_back("cloudiq");
   dev_types.push_back("cloudsdr");
@@ -344,6 +345,7 @@ source_impl::source_impl( const std::string &args )
 
 #ifdef ENABLE_RFSPACE
     if ( dict.count("rfspace") ||
+         dict.count("sdr-14") ||
          dict.count("sdr-iq") ||
          dict.count("sdr-ip") ||
          dict.count("netsdr") ||
