@@ -1,3 +1,21 @@
+
+
+
+This fork adds support for the venerable RFSPACE SDR-14 receiver.
+
+* Use "sdr-14" oder "sdr-14=ftdi" as device string.
+* The sample rate is 150kHz only.
+* AD-6620 initialization inspired by https://github.com/colbyAtCRI/sdriqserver/blob/master/sdrcmds.py
+* I used libftdi; the driver will use one SDR-14 based on usb VID/PID.
+
+This is a rough hack, I hope I did not break any other RFSPACE devices.
+
+Feedback is welcome!
+
+kai dm2kg
+
+
+
 gr-osmosdr - generic gnuradio SDR I/O block
 ===========================================
 
