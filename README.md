@@ -1,6 +1,5 @@
 
 
-
 This fork adds support for the venerable RFSPACE SDR-14 receiver.
 
 * Use "sdr-14" oder "sdr-14=ftdi" as device string.
