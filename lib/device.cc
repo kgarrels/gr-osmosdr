@@ -69,6 +69,10 @@
 #include <rfspace_source_c.h>
 #endif
 
+#ifdef ENABLE_SDR_14
+#include <sdr_14_source_c.h>
+#endif
+
 #ifdef ENABLE_AIRSPY
 #include <airspy_source_c.h>
 #endif
@@ -175,6 +179,10 @@ devices_t device::find(const device_t &hint)
 #endif
 #ifdef ENABLE_RFSPACE
   for (std::string dev : rfspace_source_c::get_devices( fake ))
+    devices.push_back( device_t(dev) );
+#endif
+#ifdef ENABLE_SDR_14
+  for (std::string dev : sdr_14_source_c::get_devices( fake ))
     devices.push_back( device_t(dev) );
 #endif
 #ifdef ENABLE_AIRSPY

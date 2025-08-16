@@ -231,6 +231,14 @@ if(ENABLE_RFSPACE)
 endif(ENABLE_RFSPACE)
 
 ########################################################################
+# Setup SDR-14 component
+########################################################################
+GR_REGISTER_COMPONENT("SDR-14 Receiver" ENABLE_SDR_14)
+if(ENABLE_SDR_14)
+    add_subdirectory(sdr-14)
+endif(ENABLE_SDR_14)
+
+########################################################################
 # Setup AIRSPY component
 ########################################################################
 GR_REGISTER_COMPONENT("AIRSPY Receiver" ENABLE_AIRSPY LIBAIRSPY_FOUND)

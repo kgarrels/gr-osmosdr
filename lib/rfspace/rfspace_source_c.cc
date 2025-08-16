@@ -34,8 +34,6 @@
 #include <netinet/udp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <string.h>
-#include <stdlib.h>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -43,8 +41,6 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <libgen.h> /* basename */
-
-#include <ftdi.h>
 
 #include <algorithm>
 #include <iostream>
@@ -114,11 +110,8 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
 
   dict_t dict = params_to_dict(args);
 
-  if ( dict.count("sdr-14") )
-    dict["rfspace"] = dict["sdr-14"];
-
   if ( dict.count("sdr-iq") )
-  dict["rfspace"] = dict["sdr-iq"];
+    dict["rfspace"] = dict["sdr-iq"];
 
   if ( dict.count("sdr-ip") )
     dict["rfspace"] = dict["sdr-ip"];
@@ -144,11 +137,8 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
       {
         dict_t first = params_to_dict( devices[0] );
 
-        if ( first.count("sdr-14") )
-          value = first["sdr-14"];
-
         if ( first.count("sdr-iq") )
-        value = first["sdr-iq"];
+          value = first["sdr-iq"];
 
         if ( first.count("sdr-ip") )
           value = first["sdr-ip"];
@@ -194,44 +184,14 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
   std::string label = dict["label"];
 
   if ( label.length() )
-    std::cerr << "Wants to use " + label << " ";
+    std::cerr << "Using " + label << " ";
 
   struct stat sb;
   bzero(&sb, sizeof(sb));
 
-  if (host == "ftdi")
+  if ( stat(host.c_str(), &sb) == 0 && (sb.st_mode & S_IFMT) == S_IFCHR ) /* is character device */
   {
-    struct ftdi_context *ftdi;
-
-    std::cerr << "in constructor for ftdi\n";
-
-    if ((ftdi = ftdi_new()) == 0)
-    {
-        printf("ftdi_new failed\n");
-        return;
-    }
-
-    int ret;
-    if ((ret = ftdi_usb_open(ftdi, 0x0403, 0xf728)) < 0)    // sdr_14
-    {
-        printf("unable to open ftdi device: %d (%s)\n", ret, ftdi_get_error_string(ftdi));
-        ftdi_free(ftdi);
-        return;
-    }
-    _radio = RFSPACE_SDR_14; /* legitimate assumption, we only discovered SD-14 devices */
-    _ftdi = ftdi;
-    ftdi_usb_purge_buffers(_ftdi);
-
-    _run_usb_read_task = true;
-    _fifo = new boost::circular_buffer<gr_complex>( 200000 );
-    if ( ! _fifo )
-      throw std::runtime_error( "Failed to allocate sample FIFO" );
-
-    _thread = gr::thread::thread( boost::bind(&rfspace_source_c::usb_read_task, this) );
-  }
-  else if ( stat(host.c_str(), &sb) == 0 && (sb.st_mode & S_IFMT) == S_IFCHR ) /* is character device */
-  {
-    _usb = open( host.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK );
+    _usb = open( host.c_str(), O_RDWR | O_NOCTTY );
     if ( _usb < 0 )
         throw std::runtime_error("Could not open " + host + ": " + std::string(strerror(errno)));
 
@@ -242,7 +202,7 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
     tios.c_iflag = IGNPAR;
     tios.c_oflag = 0;
     tios.c_lflag = 0;
-    tios.c_cc[VTIME] = 0; /* in units of 0.1 seconds */
+    tios.c_cc[VTIME] = 2; /* in units of 0.1 seconds */
     tios.c_cc[VMIN]  = 0;
 
     cfsetispeed(&tios, B230400);
@@ -355,46 +315,37 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
 
   std::vector< unsigned char > response;
 
-  // if ( ! label.length() ) /* label is empty, request name & serial from device */
-  if ( true ) /* label is empty, request name & serial from device */
+  if ( ! label.length() ) /* label is empty, request name & serial from device */
   {
     std::cerr << "Using ";
 
-    unsigned char name[] = { 0x04, 0x20, 0x01, 0x00 };      /* NETSDR 4.1.1 Target Name */
+    unsigned char name[] = { 0x04, 0x20, 0x01, 0x00 }; /* NETSDR 4.1.1 Target Name */
     if ( transaction( name, sizeof(name), response ) )
-    {
-      char *product_id = (char *)&response[sizeof(name)];
-      std::cerr << "RFSPACE " << " " << product_id << " ";
-      //if (strcmp(product_id, "SDR-14") == 0) _radio = RFSPACE_SDR_14;    // detect sdr-14 by its name
-    }
+      std::cerr << "RFSPACE " << &response[sizeof(name)] << " ";
 
     unsigned char sern[] = { 0x04, 0x20, 0x02, 0x00 }; /* NETSDR 4.1.2 Target Serial Number */
     if ( transaction( sern, sizeof(sern), response ) )
       std::cerr << "SN " << &response[sizeof(sern)] << " ";
   }
 
-  if (_radio != RFSPACE_SDR_14)
+  unsigned char prod[] = { 0x04, 0x20, 0x09, 0x00 }; /* NETSDR 4.1.6 Product ID */
+  if ( transaction( prod, sizeof(prod), response ) )
   {
-    unsigned char prod[] = { 0x04, 0x20, 0x09, 0x00 }; /* NETSDR 4.1.6 Product ID */
-    if ( transaction( prod, sizeof(prod), response ) )
-    {
-      uint32_t product_id = htonl(*((uint32_t *)&response[sizeof(prod)]));
-      std::cerr << std::hex << product_id << std::dec << " ";
+    uint32_t product_id = htonl(*((uint32_t *)&response[sizeof(prod)]));
+//    std::cerr << std::hex << product_id << std::dec << " ";
 
-      if ( 0x5affa500 == product_id ) /* SDR-IQ 5.1.6 Product ID */
-        _radio = RFSPACE_SDR_IQ;
-      else if ( 0x53445203 == product_id ) /* SDR-IP 4.1.6 Product ID */
-        _radio = RFSPACE_SDR_IP;
-      else if ( 0x53445204 == product_id ) /* NETSDR 4.1.6 Product ID */
-        _radio = RFSPACE_NETSDR;
-      else if ( 0x434C4951 == product_id ) /* CloudIQ Product ID */
-        _radio = RFSPACE_CLOUDIQ;
-      else if ( 0x434C5344 == product_id ) /* CloudSDR Product ID */
-        _radio = RFSPACE_CLOUDSDR;
-      else
-        _radio = RADIO_UNKNOWN;
-        std::cerr << "unknown";
-    }
+    if ( 0x5affa500 == product_id ) /* SDR-IQ 5.1.6 Product ID */
+      _radio = RFSPACE_SDR_IQ;
+    else if ( 0x53445203 == product_id ) /* SDR-IP 4.1.6 Product ID */
+      _radio = RFSPACE_SDR_IP;
+    else if ( 0x53445204 == product_id ) /* NETSDR 4.1.6 Product ID */
+      _radio = RFSPACE_NETSDR;
+    else if ( 0x434C4951 == product_id ) /* CloudIQ Product ID */
+      _radio = RFSPACE_CLOUDIQ;
+    else if ( 0x434C5344 == product_id ) /* CloudSDR Product ID */
+      _radio = RFSPACE_CLOUDSDR;
+    else
+      std::cerr << "UNKNOWN ";
   }
 
   bool has_X2_option = false;
@@ -479,14 +430,15 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
 
   /* preset reasonable defaults */
 
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
-    set_sample_rate( 158730 );
+    set_sample_rate( 196078 );
   }
   else if ( RFSPACE_NETSDR == _radio ||
             RFSPACE_SDR_IP == _radio )
   {
     set_sample_rate( 200000 );
+
     set_bandwidth( 0 ); /* switch to automatic filter selection by default */
   }
   else if ( RFSPACE_CLOUDIQ == _radio ||
@@ -506,7 +458,7 @@ rfspace_source_c::rfspace_source_c (const std::string &args)
     _thread = gr::thread::thread( boost::bind(&rfspace_source_c::tcp_keepalive_task, this) );
   }
 
-#if 1
+#if 0
   std::cerr << "sample_rates: " << get_sample_rates().to_pp_string() << std::endl;
   std::cerr << "sample rate: " << (uint32_t)get_sample_rate() << std::endl;
 
@@ -528,9 +480,10 @@ rfspace_source_c::~rfspace_source_c ()
   close(_tcp);
   close(_udp);
 
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
     _run_usb_read_task = false;
+
     _thread.join();
   }
   else
@@ -541,7 +494,6 @@ rfspace_source_c::~rfspace_source_c ()
   }
 
   close(_usb);
-  ftdi_free(_ftdi);
 
   if ( _fifo )
   {
@@ -571,23 +523,6 @@ void rfspace_source_c::apply_channel( unsigned char *cmd, size_t chan )
   cmd[4] = value;
 }
 
-bool rfspace_source_c::setDsp()
-{
-  int row;
-  std::vector< unsigned char > response;
-
-  for (row=0; row < (int)BWKHZ_150.size(); row++)
-  {
-    if ( ! transaction((unsigned char *)&BWKHZ_150[row][0], BWKHZ_150[row].size(), response)) 
-    {
-      std::cerr << "setDsp() failed.\n";
-      return false;
-    }
-  }
-  std::cerr << "setDsp() done.\n";
-  return true;
-}
-
 bool rfspace_source_c::transaction( const unsigned char *cmd, size_t size )
 {
   std::vector< unsigned char > response;
@@ -602,17 +537,16 @@ bool rfspace_source_c::transaction( const unsigned char *cmd, size_t size )
   return false;
 }
 
+//#define VERBOSE
 
-bool rfspace_source_c::transaction( const unsigned char *cmd, size_t size, 
+bool rfspace_source_c::transaction( const unsigned char *cmd, size_t size,
                                    std::vector< unsigned char > &response )
 {
   size_t rx_bytes = 0;
-  unsigned char data[1024*10];
-  int ret=0;
+  unsigned char data[1024*2];
 
   response.clear();
 
-//#define VERBOSE
 #ifdef VERBOSE
   printf("< ");
   for (size_t i = 0; i < size; i++)
@@ -620,21 +554,10 @@ bool rfspace_source_c::transaction( const unsigned char *cmd, size_t size,
   printf("\n");
 #endif
 
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
-    if (_radio == RFSPACE_SDR_IP)
-    {
-      if ( write(_usb, cmd, size) != (int)size )
-        return false;
-    }
-    else // is SDR-14 with ftdi
-    {
-      if ( ret = ftdi_write_data(_ftdi, cmd, size)  )
-      {
-        //std::cerr << "written " << ret << "\n";
-        if (ret != (int)size) return false;
-      }
-    }
+    if ( write(_usb, cmd, size) != (int)size )
+      return false;
 
     std::unique_lock<std::mutex> lock(_resp_lock);
     _resp_avail.wait(lock);
@@ -680,20 +603,13 @@ bool rfspace_source_c::transaction( const unsigned char *cmd, size_t size,
   return true;
 }
 
-size_t rfspace_source_c::read_bytes( char *data, size_t size, bool &run )
+static size_t read_bytes( int fd, char *data, size_t size, bool &run )
 {
   size_t nbytes = 0;
-  
+
   while ( nbytes < size && run )
   {
-    int nread=0; 
-
-    if (_radio == RFSPACE_SDR_IQ) 
-      nread = read( _usb, &data[nbytes], 1);              // SDR-IQ
-    else {
-      nread = ftdi_read_data( _ftdi, (unsigned char *)&data[nbytes], 1);                // SDR-14
-      if (nread < 0 ) std::cerr << " nread " << nread <<  " " <<_ftdi->error_str <<"\n";
-    }
+    int nread = read( fd, &data[nbytes], 1 );
 
     if ( nread == 0 )
       continue;   
@@ -703,6 +619,7 @@ size_t rfspace_source_c::read_bytes( char *data, size_t size, bool &run )
 
     nbytes++;
   }
+
   return nbytes;
 }
 
@@ -711,16 +628,17 @@ void rfspace_source_c::usb_read_task()
   char data[1024*10];
   size_t n_avail, to_copy;
 
-  // if ( -1 == _usb ) return;
+  if ( -1 == _usb )
+    return;
+
   while ( _run_usb_read_task )
   {
-    size_t nbytes;
-
-    nbytes = read_bytes( data, 2, _run_usb_read_task );
+    size_t nbytes = read_bytes( _usb, data, 2, _run_usb_read_task );
     if ( nbytes != 2 )
       continue;
 
     size_t length = ((data[1] << 8) | data[0]) & 0x1fff;
+
     if ( 0 == length ) /* SDR-IQ 5.4.1 Output Data Item 0 */
       length = 1024*8 + 2;
 
@@ -736,24 +654,14 @@ void rfspace_source_c::usb_read_task()
       continue;
     }
 
-    nbytes = read_bytes( data + 2, length, _run_usb_read_task );
+    nbytes = read_bytes( _usb, data + 2, length, _run_usb_read_task );
     if ( nbytes != length )
       continue;
 
     if ( 1024*8 == length )
     {
-      // SDR-14 needs ack
-      if (_radio == RFSPACE_SDR_14)
-      {
-        uint cnt;
-        if(cnt++ > 10) 
-        {
-          ack();
-          cnt = 0;
-        }
-      }
-    
       /* push samples into the fifo */
+
       _fifo_lock.lock();
 
       size_t num_samples = length / 4;
@@ -767,8 +675,9 @@ void rfspace_source_c::usb_read_task()
       for ( size_t i = 0; i < to_copy; i++ )
       {
         /* Push sample to the fifo */
-       _fifo->push_back( gr_complex( *(sample+0) * SCALE_16,
+        _fifo->push_back( gr_complex( *(sample+0) * SCALE_16,
                                       *(sample+1) * SCALE_16 ) );
+
         /* offset to the next I+Q sample */
         sample += 2;
       }
@@ -779,7 +688,7 @@ void rfspace_source_c::usb_read_task()
 
       /* We have made some new samples available to the consumer in work() */
       if (to_copy) {
-        //std::cerr << "+" << std::flush;
+//        std::cerr << "+" << std::flush;
         _samp_avail.notify_one();
       }
 
@@ -820,16 +729,6 @@ void rfspace_source_c::tcp_keepalive_task()
   }
 }
 
-
-
-bool rfspace_source_c::ack()
-{
-  //std::cerr << ".";
-  unsigned char ack[] = { 0x03, 0x60, 0x00 };
-  if (_radio ==RFSPACE_SDR_IQ) write(_usb, ack, 3);
-  else ftdi_write_data(_ftdi, ack, 3);
-}
-
 bool rfspace_source_c::start()
 {
   _sequence = 0;
@@ -838,10 +737,10 @@ bool rfspace_source_c::start()
 
   /* SDR-IP 4.2.1 Receiver State */
   /* NETSDR 4.2.1 Receiver State */
-  unsigned char start[] = { 0x08, 0x00, 0x18, 0x00, 0x81, 0x02, 0x00, 0x01 };
+  unsigned char start[] = { 0x08, 0x00, 0x18, 0x00, 0x80, 0x02, 0x00, 0x00 };
 
   /* SDR-IQ 5.2.1 Receiver State */
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
     start[sizeof(start)-4] = 0x81;
 
   unsigned char mode = 0; /* 0 = 16 bit Contiguous Mode */
@@ -854,19 +753,11 @@ bool rfspace_source_c::start()
 
   start[sizeof(start)-2] = mode;
 
-  // set if gain
-  std::cerr << "start, set if gain\n";
-  unsigned char ifgain[] = { 0x06, 0x00, 0x40, 0x00, 0x00, 0x18 }; 
-  transaction( ifgain, sizeof(ifgain) );
-
-  std::cerr << "start, start cmd\n";
   return transaction( start, sizeof(start) );
 }
 
 bool rfspace_source_c::stop()
 {
-  std::cerr << "stopping. \n";
-
   if ( ! _keep_running )
     _running = false;
   _keep_running = false;
@@ -876,10 +767,10 @@ bool rfspace_source_c::stop()
 
   /* SDR-IP 4.2.1 Receiver State */
   /* NETSDR 4.2.1 Receiver State */
-  unsigned char stop[] = { 0x08, 0x00, 0x18, 0x00, 0x00, 0x01, 0x00, 0x01 };
+  unsigned char stop[] = { 0x08, 0x00, 0x18, 0x00, 0x00, 0x01, 0x00, 0x00 };
 
   /* SDR-IQ 5.2.1 Receiver State */
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
     stop[sizeof(stop)-4] = 0x81;
 
   return transaction( stop, sizeof(stop) );
@@ -890,13 +781,12 @@ int rfspace_source_c::work( int noutput_items,
                            gr_vector_const_void_star &input_items,
                            gr_vector_void_star &output_items )
 {
-  unsigned char data[1024*10];
+  unsigned char data[1024*2];
 
   if ( ! _running )
     return WORK_DONE;
 
-  
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
     if ( noutput_items > 0 )
     {
@@ -918,6 +808,8 @@ int rfspace_source_c::work( int noutput_items,
         out[i] = _fifo->at(0);
         _fifo->pop_front();
       }
+
+//      std::cerr << "-" << std::flush;
     }
 
     return noutput_items;
@@ -1003,6 +895,7 @@ int rfspace_source_c::work( int noutput_items,
   #undef SCALE_16
 
   noutput_items = rx_samples;
+
   return noutput_items;
 }
 
@@ -1036,8 +929,6 @@ typedef struct
   std::string sn;
   std::string addr;
   uint16_t port;
-  struct ftdi_context *ftdi;
-
 } unit_t;
 
 
@@ -1096,7 +987,7 @@ static std::vector < unit_t > discover_netsdr()
   while ( true )
   {
     std::size_t rx_bytes = 0;
-    unsigned char data[1024*10];
+    unsigned char data[1024*2];
 
     socklen_t addrlen = sizeof(peer_sa);  /* length of addresses */
     int nbytes = recvfrom(sock, data, sizeof(data), 0, (struct sockaddr *)&peer_sa, &addrlen);
@@ -1157,8 +1048,6 @@ static std::string read_file(const char *filename)
 static std::vector < unit_t > discover_sdr_iq()
 {
   std::vector < unit_t > units;
-
-  std::cerr << "in discover_sdr_iq\n";
 
   int n;
   struct dirent **namelist;
@@ -1248,7 +1137,7 @@ static std::vector < unit_t > discover_sdr_iq()
       const char *base = basename(buffer);
       if ( base )
         port += base;
-#if !0
+#if 0
       std::cerr << product << std::endl;
       std::cerr << serial << std::endl;
       std::cerr << port << std::endl;
@@ -1267,56 +1156,6 @@ static std::vector < unit_t > discover_sdr_iq()
   return units;
 }
 
-#include <ftdi.h>
-static std::vector < unit_t > discover_sdr_14()
-{
-  std::vector < unit_t > units;
-  struct ftdi_context *ftdi;
-
-  std::cerr << "in discover_sdr_14 ftdi\n";
-
-  int ret;
-  struct ftdi_version_info version;
-  if ((ftdi = ftdi_new()) == 0)
-  {
-      std::cerr << "ftdi_new failed\n";
-      return units;
-  }
-
-  version = ftdi_get_library_version();
-  std::cerr << "Initialized libftdi " << version.version_str << "\n";
-
-  if ((ret = ftdi_usb_open(ftdi, 0x0403, 0xf728)) < 0)
-  {
-      printf("unable to open ftdi device: %d (%s)\n", ret, ftdi_get_error_string(ftdi));
-      ftdi_free(ftdi);
-      return units;
-  }
-
-  unsigned int chipid;
-  printf("ftdi_read_chipid: %d\n", ftdi_read_chipid(ftdi, &chipid));
-  printf("FTDI chipid: %X\n", chipid);
-
-  // was only discover, close 
-  if ((ret = ftdi_usb_close(ftdi)) < 0)
-  {
-      printf("unable to close ftdi device: %d (%s)\n", ret, ftdi_get_error_string(ftdi));
-      ftdi_free(ftdi);
-      return units;
-  }
-  ftdi_free(ftdi);
-
-  unit_t unit;
-  unit.name = "SDR-14";
-  unit.sn = "?";
-  unit.addr = "ftdi";
-  unit.port = 0;
-  units.push_back( unit );
-
-  return units;
-}
-
-
 std::vector<std::string> rfspace_source_c::get_devices( bool fake )
 {
   std::vector<std::string> devices;
@@ -1325,8 +1164,8 @@ std::vector<std::string> rfspace_source_c::get_devices( bool fake )
 
   for (unit_t u : units)
   {
-    std::cerr << u.name << " " << u.sn << " " << u.addr <<  ":" << u.port
-              << std::endl;
+//    std::cerr << u.name << " " << u.sn << " " << u.addr <<  ":" << u.port
+//              << std::endl;
 
     std::string type = u.name;
     std::transform(type.begin(), type.end(), type.begin(), ::tolower);
@@ -1336,12 +1175,11 @@ std::vector<std::string> rfspace_source_c::get_devices( bool fake )
   }
 
   units = discover_sdr_iq();
-  units = discover_sdr_14();
-  
+
   for (unit_t u : units)
   {
-    std::cerr << u.name << " " << u.sn << " " << u.addr <<  ":" << u.port
-              << std::endl;
+//    std::cerr << u.name << " " << u.sn << " " << u.addr <<  ":" << u.port
+//              << std::endl;
 
     std::string type = u.name;
     std::transform(type.begin(), type.end(), type.begin(), ::tolower);
@@ -1352,9 +1190,6 @@ std::vector<std::string> rfspace_source_c::get_devices( bool fake )
 
   if ( devices.empty() && fake )
   {
-    devices += str(boost::format("sdr-14=%s,label='RFSPACE SDR-14 Receiver'")
-                   % "");
-
     devices += str(boost::format("sdr-iq=%s,label='RFSPACE SDR-IQ Receiver'")
                    % "/dev/ttyUSB0");
 
@@ -1395,8 +1230,6 @@ osmosdr::meta_range_t rfspace_source_c::get_sample_rates()
     range += osmosdr::range_t( 158730 );
     range += osmosdr::range_t( 196078 );
   }
-  else if ( RFSPACE_SDR_14 == _radio)
-    range += osmosdr::range_t( 158730 );
   else if ( RFSPACE_SDR_IP == _radio )
   {
     /* Calculate SDR-IP sample rates as per SDR-IP 4.2.8 DDC Output Sample Rate */
@@ -1465,7 +1298,7 @@ osmosdr::meta_range_t rfspace_source_c::get_sample_rates()
 
 double rfspace_source_c::set_sample_rate( double rate )
 {
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
     /* does not support arbitrary rates, pick closest from hardcoded values above */
 
@@ -1494,40 +1327,29 @@ double rfspace_source_c::set_sample_rate( double rate )
   if ( _running )
   {
     _keep_running = true;
+
     stop();
   }
 
-  //sdr-14 needs to load AD6620
-  if (_radio == RFSPACE_SDR_14)
-  {
-    if ( !setDsp())
-      throw std::runtime_error("setDsp() failed");
-    _sample_rate = rate;
-  
-  }
-  else
-  {
-    if ( ! transaction( samprate, sizeof(samprate), response ) )
-      throw std::runtime_error("set_sample_rate failed");
-
-    u32_rate = 0;
-    u32_rate |= response[sizeof(samprate)-4] <<  0;
-    u32_rate |= response[sizeof(samprate)-3] <<  8;
-    u32_rate |= response[sizeof(samprate)-2] << 16;
-    u32_rate |= response[sizeof(samprate)-1] << 24;
-
-    _sample_rate = u32_rate;
-
-    if ( rate != _sample_rate )
-      std::cerr << "Radio reported a sample rate of " << (uint32_t)_sample_rate << " Hz"
-                << std::endl;
-}
+  if ( ! transaction( samprate, sizeof(samprate), response ) )
+    throw std::runtime_error("set_sample_rate failed");
 
   if ( _running )
   {
     start();
   }
 
+  u32_rate = 0;
+  u32_rate |= response[sizeof(samprate)-4] <<  0;
+  u32_rate |= response[sizeof(samprate)-3] <<  8;
+  u32_rate |= response[sizeof(samprate)-2] << 16;
+  u32_rate |= response[sizeof(samprate)-1] << 24;
+
+  _sample_rate = u32_rate;
+
+  if ( rate != _sample_rate )
+    std::cerr << "Radio reported a sample rate of " << (uint32_t)_sample_rate << " Hz"
+              << std::endl;
 
   return get_sample_rate();
 }
@@ -1541,7 +1363,7 @@ osmosdr::freq_range_t rfspace_source_c::get_freq_range( size_t chan )
 {
   osmosdr::freq_range_t range;
 
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
     /* does not support range query, use hardcoded values */
     range += osmosdr::range_t(0, SDR_IQ_ADC_CLOCK / 2.0f);
@@ -1588,7 +1410,7 @@ double rfspace_source_c::set_center_freq( double freq, size_t chan )
   /* SDR-IQ 5.2.2 Receiver Frequency */
   /* SDR-IP 4.2.2 Receiver Frequency */
   /* NETSDR 4.2.3 Receiver Frequency */
-  unsigned char tune[] = { 0x0A, 0x00, 0x20, 0x00, 0x00, 0xb0, 0x19, 0x6d, 0x00, 0x01 };
+  unsigned char tune[] = { 0x0A, 0x00, 0x20, 0x00, 0x00, 0xb0, 0x19, 0x6d, 0x00, 0x00 };
 
   apply_channel( tune, chan );
 
@@ -1598,7 +1420,6 @@ double rfspace_source_c::set_center_freq( double freq, size_t chan )
   tune[sizeof(tune)-2] = u32_freq >> 24;
   tune[sizeof(tune)-1] = 0;
 
-  std::cerr << "set_centr_freq " << freq/1000 << "kHz\n";
   transaction( tune, sizeof(tune) );
 
   return get_center_freq( chan );
@@ -1648,7 +1469,7 @@ std::vector<std::string> rfspace_source_c::get_gain_names( size_t chan )
 
 osmosdr::gain_range_t rfspace_source_c::get_gain_range( size_t chan )
 {
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
     return osmosdr::gain_range_t(-20, 10, 10);
   else /* SDR-IP, NETSDR and Cloud-IQ */
     return osmosdr::gain_range_t(-30, 0, 10);
@@ -1678,7 +1499,7 @@ double rfspace_source_c::set_gain( double gain, size_t chan )
 
   apply_channel( atten, chan );
 
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
   {
     if ( gain <= -20 )
       atten[sizeof(atten)-1] = 0xE2;
@@ -1700,12 +1521,8 @@ double rfspace_source_c::set_gain( double gain, size_t chan )
     else /* 0 dB */
       atten[sizeof(atten)-1] = 0x00;
   }
-  transaction( atten, sizeof(atten) );
 
-  // set if gain
-  std::cerr << "set_gain " << gain << "\n";
-  unsigned char ifgain[] = { 0x06, 0x00, 0x40, 0x00, 0x00, 0x18 };  // snd 06 00 40 00 00 18
-  transaction( ifgain, sizeof(ifgain) );
+  transaction( atten, sizeof(atten) );
 
   return get_gain( chan );
 }
@@ -1736,7 +1553,7 @@ double rfspace_source_c::get_gain( size_t chan )
   if( code & 0x80 )
     gain = (code & 0x7f) - 0x80;
 
-  if ( RFSPACE_SDR_IQ == _radio || RFSPACE_SDR_14 == _radio)
+  if ( RFSPACE_SDR_IQ == _radio )
     gain += 10;
 
   return gain;
@@ -1771,11 +1588,10 @@ std::string rfspace_source_c::get_antenna( size_t chan )
 
 double rfspace_source_c::set_bandwidth( double bandwidth, size_t chan )
 {
-  if ( RFSPACE_SDR_IQ == _radio || 
-       RFSPACE_SDR_14 == _radio ||
+  if ( RFSPACE_SDR_IQ == _radio ||
        RFSPACE_CLOUDIQ == _radio ||
        RFSPACE_CLOUDSDR == _radio) /* not supported by SDR-IQ, Cloud-IQ, or CloudSDR */
-    return BANDWIDTH;
+    return 0.0f;
 
   /* SDR-IP 4.2.5 RF Filter Selection */
   /* NETSDR 4.2.7 RF Filter Selection */

@@ -72,6 +72,10 @@
 #include <rfspace_source_c.h>
 #endif
 
+#ifdef ENABLE_SDR_14
+#include <sdr_14_source_c.h>
+#endif
+
 #ifdef ENABLE_AIRSPY
 #include <airspy_source_c.h>
 #endif
@@ -155,6 +159,9 @@ source_impl::source_impl( const std::string &args )
 #ifdef ENABLE_RFSPACE
   dev_types.push_back("rfspace");
 #endif
+#ifdef ENABLE_SDR_14
+  dev_types.push_back("sdr-14");
+#endif
 #ifdef ENABLE_AIRSPY
   dev_types.push_back("airspy");
 #endif
@@ -184,10 +191,13 @@ source_impl::source_impl( const std::string &args )
 #ifdef ENABLE_RFSPACE
   dev_types.push_back("sdr-iq"); /* additional aliases for rfspace backend */
   dev_types.push_back("sdr-ip");
-  dev_types.push_back("sdr-14");
   dev_types.push_back("netsdr");
   dev_types.push_back("cloudiq");
   dev_types.push_back("cloudsdr");
+#endif
+
+#ifdef ENABLE_SDR_14
+  dev_types.push_back("sdr-14");
 #endif
 
   for (std::string arg : arg_list) {
@@ -228,6 +238,10 @@ source_impl::source_impl( const std::string &args )
 #endif
 #ifdef ENABLE_RFSPACE
     for (std::string dev : rfspace_source_c::get_devices())
+      dev_list.push_back( dev );
+#endif
+#ifdef ENABLE_SDR_14
+    for (std::string dev : sdr_14_source_c::get_devices())
       dev_list.push_back( dev );
 #endif
 #ifdef ENABLE_HACKRF
@@ -345,13 +359,20 @@ source_impl::source_impl( const std::string &args )
 
 #ifdef ENABLE_RFSPACE
     if ( dict.count("rfspace") ||
-         dict.count("sdr-14") ||
          dict.count("sdr-iq") ||
          dict.count("sdr-ip") ||
          dict.count("netsdr") ||
          dict.count("cloudiq") ||
          dict.count("cloudsdr") ) {
       rfspace_source_c_sptr src = make_rfspace_source_c( arg );
+      block = src; iface = src.get();
+    }
+#endif
+
+#ifdef ENABLE_SDR_14
+    if ( dict.count("sdr-14"))
+    {
+      sdr_14_source_c_sptr src = make_sdr_14_source_c( arg );
       block = src; iface = src.get();
     }
 #endif

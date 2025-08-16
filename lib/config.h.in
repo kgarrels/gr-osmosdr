@@ -14,6 +14,7 @@
 #cmakedefine ENABLE_HACKRF
 #cmakedefine ENABLE_BLADERF
 #cmakedefine ENABLE_RFSPACE
+#cmakedefine ENABLE_SDR_14
 #cmakedefine ENABLE_AIRSPY
 #cmakedefine ENABLE_AIRSPYHF
 #cmakedefine ENABLE_SOAPY
